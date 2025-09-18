@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>ResQ 112 - Support Chat</title>
+    <link href="https://fonts.googleapis.com/css2?family=Exo+2:wght@400;700;900&family=Space+Grotesk:wght@400;600;700&display=swap" rel="stylesheet"/>
+    <style>
+        :root {
+            --bg-color: #000000; --text-color: #e0e0e0; --text-color-light: #fff;
+            --text-highlight-glow: #00ffff; --glow-button-text: #000; --hr-color: rgba(0, 255, 255, 0.2);
+            --glass-card-bg: rgba(255,255,255,0.05); --glass-card-border: rgba(255,255,255,0.1);
+        }
+        body.light-theme {
+            --bg-color: #eaf2f8; --text-color: #34495e; --text-color-light: #1c2833;
+            --text-highlight-glow: #0056b3; --glow-button-text: #fff; --hr-color: rgba(0, 86, 179, 0.2);
+            --glass-card-bg: rgba(255,255,255,0.6); --glass-card-border: rgba(220,220,220,0.8);
+        }
+        body { font-family: 'Space Grotesk', sans-serif; margin: 0; background-color: var(--bg-color); color: var(--text-color); }
+        .support-container { display: flex; height: 100vh; }
+        #session-list { width: 300px; border-right: 1px solid var(--hr-color); display: flex; flex-direction: column; }
+        .session-header, .chat-header { padding: 1rem; font-family: 'Exo 2'; font-weight: bold; font-size: 1.25rem; color: var(--text-color-light); border-bottom: 1px solid var(--hr-color); }
+        #sessions { flex-grow: 1; overflow-y: auto; }
+        .session-item { padding: 1rem; cursor: pointer; border-bottom: 1px solid var(--hr-color); }
+        .session-item:hover, .session-item.active { background-color: rgba(0,255,255,0.1); }
+        body.light-theme .session-item:hover, body.light-theme .session-item.active { background-color: rgba(0,86,179,0.1); }
+        #chat-area { flex-grow: 1; display: flex; flex-direction: column; }
+        #chat-messages { flex-grow: 1; padding: 1rem; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem; }
+        .message { max-width: 80%; padding: 0.5rem 1rem; border-radius: 1rem; }
+        .support { background-color: var(--text-highlight-glow); color: var(--glow-button-text); align-self: flex-end; border-bottom-right-radius: 0; }
+        .user { background-color: #333; color: #fff; align-self: flex-start; border-bottom-left-radius: 0; }
+        body.light-theme .user { background-color: #e5e7eb; color: #1c2833; }
+        .chat-input-area { display: flex; padding: 0.5rem; border-top: 1px solid var(--hr-color); }
+        #chat-input { flex-grow: 1; border: none; background: transparent; padding: 0.5rem; color: var(--text-color); outline: none; }
+        #chat-send-btn { background: none; border: none; color: var(--text-highlight-glow); font-weight: bold; cursor: pointer; }
+        #theme-switcher { position: absolute; top: 1rem; right: 1rem; z-index: 10; }
+    </style>
+    <script> (function() { const theme = localStorage.getItem('theme'); if (theme === 'light') { document.body.classList.add('light-theme'); } })(); </script>
+</head>
+<body>
+    <div class="support-container">
+        <div id="session-list">
+            <div class="session-header">Active Chats</div>
+            <div id="sessions">
+                <p style="padding: 1rem; color: #888;">Waiting for new chats...</p>
+            </div>
+        </div>
+        <div id="chat-area">
+            <div class="chat-header" id="chat-header-title">Select a chat to view</div>
+            <div id="chat-messages"></div>
+            <div class="chat-input-area">
+                <input type="text" id="chat-input" placeholder="Type your response...">
+                <button id="chat-send-btn">Reply</button>
+            </div>
+        </div>
+    </div>
+    
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+    <script type="module">
+        const firebaseConfig={ apiKey:"AIzaSyBcLtaRPt6hTo4aEFRvcBwNq5-00soEjB4", authDomain:"sos-c1499.firebaseapp.com", databaseURL:"https://sos-c1499-default-rtdb.asia-southeast1.firebasedatabase.app", projectId:"sos-c1499", storageBucket:"sos-c1499.appspot.com", messagingSenderId:"1008729495848", appId:"1:1008729495848:web:7d6c7d3a6047e2736e981d", measurementId:"G-JGBY3ZZPGC" };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        const sessionsDiv = document.getElementById('sessions');
+        const chatHeaderTitle = document.getElementById('chat-header-title');
+        const chatMessages = document.getElementById('chat-messages');
+        const chatInput = document.getElementById('chat-input');
+        const chatSendBtn = document.getElementById('chat-send-btn');
+        let currentChatRef = null;
+        let activeSessionId = null;
+
+        // Listen for all chat sessions
+        db.ref('supportChats').on('value', (snapshot) => {
+            sessionsDiv.innerHTML = '';
+            if (!snapshot.exists()) {
+                sessionsDiv.innerHTML = '<p style="padding: 1rem; color: #888;">No active chats.</p>';
+                return;
+            }
+            snapshot.forEach((childSnapshot) => {
+                const sessionId = childSnapshot.key;
+                const sessionEl = document.createElement('div');
+                sessionEl.classList.add('session-item');
+                sessionEl.textContent = sessionId.replace('session_', 'Chat from ');
+                sessionEl.dataset.sessionId = sessionId;
+                if (sessionId === activeSessionId) {
+                    sessionEl.classList.add('active');
+                }
+                sessionsDiv.appendChild(sessionEl);
+            });
+        });
+
+        // Handle clicking on a session
+        sessionsDiv.addEventListener('click', (e) => {
+            if (e.target && e.target.classList.contains('session-item')) {
+                const sessionId = e.target.dataset.sessionId;
+                loadChat(sessionId);
+                // Highlight active session
+                document.querySelectorAll('.session-item').forEach(el => el.classList.remove('active'));
+                e.target.classList.add('active');
+            }
+        });
+
+        // Load a specific chat
+        function loadChat(sessionId) {
+            activeSessionId = sessionId;
+            chatHeaderTitle.textContent = `Viewing Chat: ${sessionId.replace('session_', '')}`;
+            chatMessages.innerHTML = '';
+            
+            // Detach old listener if it exists
+            if (currentChatRef) {
+                currentChatRef.off();
+            }
+
+            currentChatRef = db.ref('supportChats/' + sessionId);
+            currentChatRef.on('child_added', (snapshot) => {
+                const msg = snapshot.val();
+                const msgEl = document.createElement('div');
+                msgEl.classList.add('message', msg.sender);
+                msgEl.textContent = msg.text;
+                chatMessages.appendChild(msgEl);
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            });
+        }
+
+        // Send a reply
+        function sendReply() {
+            if (!currentChatRef) {
+                alert('Please select a chat session first.');
+                return;
+            }
+            const text = chatInput.value.trim();
+            if (text === '') return;
+            const message = {
+                sender: 'support',
+                text: text,
+                timestamp: new Date().toISOString()
+            };
+            currentChatRef.push(message);
+            chatInput.value = '';
+        }
+        chatSendBtn.addEventListener('click', sendReply);
+        chatInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendReply();
+        });
+    </script>
+</body>
+</html>
